@@ -1,5 +1,13 @@
 # Spec — claude-mcp
 
+> Revised per round-001 spec review
+> ([`reviews/001-spec-review-kilo-gemini-3.7-flash.md`](reviews/001-spec-review-kilo-gemini-3.7-flash.md),
+> findings B1-B4) — the review ran the real CLI itself rather than trusting
+> `--help` text alone, and found the first draft overclaimed how thin a
+> server this could be. A second engine's review is still pending (Codex
+> hit its usage limit during round 001; re-run before implementation
+> starts).
+
 ## 0. Problem and motivation
 
 `kilo-mcp` (sibling project, `../kilo-mcp`) lets any MCP client — Claude
@@ -50,15 +58,20 @@ equivalents for all three:
   git-plumbing helper `claude-mcp` needs to own.
 - **`claude agents --json [--all] [--cwd <path>]`**: lists active (and,
   with `--all`, completed) background/interactive sessions as structured
-  JSON, filterable by working directory — this is the CLI's own
-  equivalent of kilo-mcp's task-record file, likely making a large part of
-  kilo-mcp's manual bookkeeping unnecessary here.
-- **`-r`/`--resume <session-id>`** and **`--session-id <uuid>`**: resuming
-  or pinning a session id, the natural primitive for
-  `claude_task_progress`/steering a running task the way kilo-mcp's
-  `continue_session_id` does.
-- **`--output-format json`** (with `-p`/`--print`): structured single-shot
-  result capture, the likely basis for `claude_task_result`.
+  JSON, filterable by working directory. **Corrected by round-001 review
+  (B3), verified against real output on this machine**: a `background`
+  session's row is coarse — `{id, cwd, kind, startedAt, sessionId, name,
+  state}` — and specifically **omits the OS PID**, exit code, error
+  detail, and final output that only `kind: "interactive"` rows carry.
+  This is *not* a drop-in replacement for kilo-mcp's task-record file; see
+  the revised "Consequence for scope" below.
+- **`--session-id <uuid>`**: lets the caller pre-allocate the session id
+  *before* dispatch, rather than parsing it out of the CLI's own output —
+  gives `claude-mcp` a deterministic `task_id` ↔ transcript-path mapping
+  from the moment it calls `claude`, closing the "how do I even find this
+  task's session id" problem the original draft left open.
+- **`--output-format json`** (with `-p`/`--print`, foreground only):
+  structured single-shot result capture for a synchronous dispatch.
 - **Session transcripts on disk**: this very session's own transcript is
   readable at a deterministic path under `~/.claude/projects/<encoded-cwd>/
   <session-id>.jsonl` — the natural recovery source if the MCP server
@@ -72,14 +85,22 @@ equivalents for all three:
   equivalent to port — these are opportunities to expose *more* control
   than kilo-mcp currently offers, not just parity.
 
-**Consequence for scope**: `claude-mcp` is likely a considerably thinner
-server than `kilo-mcp` — a faithful MCP *front end* over CLI primitives
-that already do the state-tracking, rather than a from-scratch task
-runner. The main engineering work is: correct flag composition, JSON
-result/progress parsing, mapping `claude agents --json` rows to a stable
-MCP task-id space, and deciding what (if anything) still needs its own
-on-disk bookkeeping for crash recovery once the CLI's own session/agent
-state is accounted for.
+**Consequence for scope — corrected after round-001 review**: the first
+draft of this spec claimed `claude-mcp` would be "considerably thinner"
+than `kilo-mcp` because `claude agents --json` looked like a drop-in
+task-record replacement. It isn't (§1's `claude agents --json` bullet,
+finding B3): no PID, no exit code, no output for background sessions.
+`claude-mcp` therefore still needs a process-management and
+transcript-reading layer comparable to `kilo-mcp`'s own — likely by
+spawning `claude -p ... --output-format json --session-id <uuid>` as a
+detached OS subprocess it tracks itself (PID, log file, on-disk task
+record), the same shape kilo-mcp already uses, rather than by delegating
+tracking to `claude agents`. What Claude Code's CLI still saves real work
+on: worktree creation (`-w`, no git-plumbing helper needed) and a
+deterministic transcript path once `--session-id` is pre-allocated (no
+log-file-format reverse-engineering needed, unlike kilo's own session DB).
+See §3 for the two concrete dispatch architectures (daemon-backed vs.
+detached-subprocess) to evaluate in the Phase 1 spike.
 
 ## 2. Non-goals (this spec's scope)
 
@@ -102,27 +123,51 @@ definitions), adapted to Claude Code's native primitives from §1:
 
 - `claude_implement(task_instructions, model?, effort?, permission_mode?,
   isolation?, working_directory?, max_budget_usd?, background=true)` →
-  dispatches via `claude -p "<task_instructions>" --bg --output-format
-  json [-w <name>] [--model ...] [--effort ...] [--permission-mode ...]`,
-  returns a `task_id` immediately. Exact interplay between `-p` and `--bg`
-  (does `--bg` alone already imply non-interactive/no-TTY behavior, or
-  must both be passed together?) is unverified — first implementation task
-  must confirm this experimentally before locking the dispatch command.
-- `claude_task_progress(task_id)` → backed by `claude agents --json
-  --cwd DIR` filtered/matched to this task's session id, surfacing whatever
-  live state the CLI reports (kilo-mcp additionally reads Kilo's own
-  session DB for a plan/todo list and commentary tail — check whether
-  Claude Code's own transcript JSONL offers an equivalent lightweight
-  "live progress" read without pulling the entire transcript into the MCP
-  server's own memory).
-- `claude_task_result(task_id)` → final structured result, likely via
-  `claude --resume <session-id> --print --output-format json` or by
-  reading the session transcript's final assistant message directly, plus
-  exit code / completion status from `claude agents --json --all`.
-- `claude_task_cancel(task_id)` → needs investigation: `claude agents
-  --help` shows no obvious stop/kill subcommand in this version, so this
-  may require resolving the session's OS PID and sending a signal, the
-  same way kilo-mcp does today, rather than a clean CLI-native cancel.
+  **round-001 review finding B2: the original draft's proposed dispatch
+  command combined `-p`/`--print` (synchronous foreground) with `--bg`
+  (background daemon) — these are two different, incompatible execution
+  models, not two independent flags.** `--output-format`,
+  `--max-budget-usd`, and `--fallback-model` also only work with
+  `-p`/`--print` per `--help`. The Phase 1 spike (§5) must evaluate both
+  real alternatives before either is locked in:
+  - **Option A — daemon-backed**: `claude "<task_instructions>" --bg
+    --session-id <uuid> [-w <name>] [--model ...] [--effort ...]
+    [--permission-mode ...]`, tracked via `claude agents --json` plus
+    transcript reads. Simpler dispatch command, but inherits B3's gap (no
+    PID/exit-code/output from `claude agents` itself) and B1's
+    (`--max-budget-usd`/`--fallback-model`/`--output-format` don't apply
+    here since `-p` isn't used).
+  - **Option B — detached subprocess (kilo-mcp's own shape)**: spawn
+    `claude -p "<task_instructions>" --output-format json --session-id
+    <uuid> [--model ...] [--effort ...] [--permission-mode ...]` as a
+    detached OS process (`start_new_session=True`/`setsid`, stdout to a
+    log file), the same pattern `kilo-mcp`'s `_spawn_kilo_background`
+    already uses. Gives `claude-mcp` real PID control and lets every
+    `-p`-only flag work, at the cost of owning the detached-process
+    lifecycle itself rather than delegating it to `claude agents`.
+- `claude_task_progress(task_id)` → **round-001 review finding B4**: do
+  not resume the session to check progress — resuming an *actively
+  running* background session risks a lock conflict with the live worker.
+  Read the session transcript (`~/.claude/projects/<encoded-cwd>/
+  <session-id>.jsonl`) read-only instead, the same way kilo-mcp's
+  `kilo_task_progress` reads Kilo's session DB read-only while the task
+  runs. Given transcripts can reach 5-10MB (round-001 review I3), read
+  from the tail rather than parsing the whole file on every poll.
+- `claude_task_result(task_id)` → final structured result from the
+  transcript's last assistant message/turn, plus completion status. If
+  Option A (daemon-backed) was chosen, cross-check `state` from `claude
+  agents --json --all`; if Option B (detached subprocess), use the
+  tracked process's exit code directly — do **not** rely on `--resume
+  --print --output-format json` to fetch a result (that resumes/extends
+  the conversation, it isn't a read-only result fetch; also confirmed
+  incompatible with an in-progress background session per B4).
+- `claude_task_cancel(task_id)` → **round-001 review finding B3
+  confirmed**: `claude agents --help` has no stop/kill/cancel subcommand
+  in this version, and `claude agents --json`'s background rows carry no
+  PID to signal even if one existed. This all but forces Option B
+  (detached subprocess, §above) if `claude_task_cancel` is a hard
+  requirement — `claude-mcp` must own the PID to be able to cancel
+  anything running as a genuine background daemon agent.
 - `claude_list_models` / `claude_auth_status` — thin wrappers if the CLI
   exposes equivalents (`claude --model` accepts aliases like `sonnet`/
   `opus`/`fable`; `claude auth` is a real subcommand per `claude --help`'s
@@ -131,6 +176,11 @@ definitions), adapted to Claude Code's native primitives from §1:
   has no built-in codebase RAG index to wrap) or `kilo_log_issue`/
   `kilo_metrics` in a first version — revisit once the core lifecycle
   tools are proven.
+- **Deferred from round-001 review (I1), not blocking**: `--agent`,
+  `--allowed-tools`/`--disallowed-tools`, `--mcp-config`, and `--settings`
+  are all real, valuable flags `claude_implement` could expose but the
+  first draft omitted — worth adding once the core dispatch/tracking loop
+  (above) is proven, not before.
 
 ## 4. Known gotchas to design around (from initial research + real `--help` output)
 
@@ -139,10 +189,17 @@ definitions), adapted to Claude Code's native primitives from §1:
   unattended dispatch, but means a malformed project config fails silently
   rather than loudly; `claude_implement` should surface this risk in its
   tool description.
-- `--bare` skips hooks/LSP/plugin sync/CLAUDE.md auto-discovery entirely —
-  worth exposing as an opt-in flag for fully deterministic, no-surprises
-  dispatch, parallel to how kilo-mcp's non-interactive mode avoids
-  picking up ambient state unexpectedly.
+- `--bare` skips hooks/LSP/plugin sync/CLAUDE.md auto-discovery entirely
+  for fully deterministic, no-surprises dispatch — **but round-001 review
+  (B1) found the first draft missed a hard requirement**: `--bare` also
+  disables OAuth *and* macOS Keychain credential reading entirely
+  ("Anthropic auth is strictly `ANTHROPIC_API_KEY` or `apiKeyHelper` via
+  `--settings`"). A user authenticated only via `claude auth login`
+  (OAuth/subscription) will get an immediate auth failure under `--bare`.
+  `claude_implement` must document this plainly and either require
+  `ANTHROPIC_API_KEY`/`apiKeyHelper` to be set before allowing `--bare`,
+  or default to *not* passing `--bare` unless the caller opts in
+  explicitly knowing this trade-off.
 - No first-party MCP server (Anthropic or community) currently implements
   this task-runner shape — community wrappers
   (`KunihiroS/claude-code-mcp`, `steipete/claude-code-mcp`,
@@ -156,15 +213,33 @@ definitions), adapted to Claude Code's native primitives from §1:
   agents`' own default-session options), the latter *is* the bypass flag.
   Easy to conflate; the tool description must be explicit about which one
   `claude_implement` actually passes and why.
+- **(round-001 review I2)** `--session-id <uuid>` lets `claude-mcp`
+  generate `task_id = uuid4()` *before* dispatch and pass it straight
+  through, rather than parsing a session id out of CLI output after the
+  fact — use this as the primary `task_id` ↔ transcript-path binding from
+  the start, not an afterthought.
+- **(round-001 review I3)** transcript JSONL files can reach 5-10MB for a
+  non-trivial session; `claude_task_progress` must read from the tail
+  (seek-from-end or reverse line streaming), not reparse the whole file
+  on every poll.
+- **(round-001 review I4)** `-w`/`--worktree` creates a worktree natively,
+  but the CLI has no built-in worktree removal — cleanup after a task
+  completes is a separate, ordinary `git worktree remove` responsibility,
+  exactly like `kilo-mcp` already handles it.
 
 ## 5. Phased roadmap
 
-1. **Spike (no MCP server yet)**: by hand, run a real `claude -p "<trivial
-   task>" --bg --output-format json` dispatch in a scratch repo, then
-   `claude agents --json --cwd <dir>`, then attempt a result read via
-   `--resume`. Record actual JSON shapes observed — this spec's §3/§4 are
-   working hypotheses from `--help` text and a research pass, not
-   confirmed behavior.
+1. **Spike (no MCP server yet)**: by hand, in a scratch repo, run **both**
+   Option A (`claude "<task>" --bg --session-id <uuid>`, then poll
+   `claude agents --json --cwd <dir>` and read the transcript) and Option
+   B (`claude -p "<task>" --output-format json --session-id <uuid>` as a
+   detached subprocess) from §3. Record: actual JSON shapes, whether
+   Option A's background row ever gains a PID/result once `state` becomes
+   `"done"`, transcript file shape/size for a real task, and which option
+   actually delivers a working `claude_task_cancel`. Pick one architecture
+   from real evidence, not from `--help` text — round-001 review already
+   found the original single-command proposal doesn't work as written
+   (B2).
 2. **Minimal server**: `claude_implement` + `claude_task_result` only,
    foreground-blocking (`background=false` equivalent) to validate the
    dispatch/result round trip before adding the async task-tracking layer.
