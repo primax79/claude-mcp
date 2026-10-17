@@ -1,0 +1,17 @@
+[
+  {
+    "name": "claude-mcp-conflict-resolver",
+    "description": "Resolve merge conflicts in files produced by parallel Claude tasks - find conflict markers, merge both versions preserving the semantics of each parallel feature, verify with linter/build.",
+    "path": "skills/claude-mcp-conflict-resolver/SKILL.md"
+  },
+  {
+    "name": "claude-mcp-metrics-analyst",
+    "description": "Evaluate claude-mcp delegation efficiency - ROI analysis via claude_metrics, decision telemetry via claude_log_decision, defect-pattern review from claude_log_issue, and feedback-loop proposals for better task specifications. Use when evaluating Claude Code delegation efficiency.",
+    "path": "skills/claude-mcp-metrics-analyst/SKILL.md"
+  },
+  {
+    "name": "claude-mcp-orchestrator",
+    "description": "Orchestrate Claude Code CLI (the Executor) through the claude-mcp server - worktree isolation (claude_implement's own isolation='worktree'), non-blocking parallel delegation via claude_implement, deterministic completion wait (claude_task_wait) and tail-transcript progress monitoring (claude_task_progress/claude_task_cancel/continue_session_id), verification of Final Reports, defect and decision telemetry (claude_log_issue/claude_log_decision), and capture of work that emerges mid-session as task files in the repository. Use when coordinating development work through the claude-mcp tools.",
+    "path": "skills/claude-mcp-orchestrator/SKILL.md"
+  }
+]

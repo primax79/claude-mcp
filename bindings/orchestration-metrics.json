@@ -1,0 +1,17 @@
+{
+  "_comment": "Binding map for claude-mcp-metrics-analyst from ai-orchestration's generic template.",
+  "name": "claude-mcp-metrics-analyst",
+  "plugin": "architect-side",
+  "description": "Evaluate claude-mcp delegation efficiency - ROI analysis via claude_metrics, decision telemetry via claude_log_decision, defect-pattern review from claude_log_issue, and feedback-loop proposals for better task specifications. Use when evaluating Claude Code delegation efficiency.",
+  "tools": {
+    "metrics_call": "`claude_metrics`",
+    "metrics_tool_call": "`claude_metrics()`",
+    "log_issue_call": "`claude_log_issue`",
+    "log_issue_tool_call": "`claude_log_issue(run_id=..., category=..., severity=..., description=...)`",
+    "executor_name": "Claude"
+  },
+  "blocks": {
+    "tool_telemetry": "The `claude-mcp` server provides built-in metrics and defect logging:\n  - `claude_metrics`: returns total runs, completed runs, cumulative model cost USD, and log file availability.\n  - `claude_log_issue`: logs defects observed during verification into `issues.jsonl`.\n  - `claude_log_decision`: logs decision branches (`delegate`, `inline`, `escalate`, `discarded`) into `decisions.jsonl`.",
+    "roi_analysis": "Compare actual delegation cost against the hypothetical cost of generating the same work inline using `claude_metrics`. Detail savings and efficiency multipliers to the user."
+  }
+}

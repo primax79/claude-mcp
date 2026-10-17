@@ -1,0 +1,29 @@
+{
+  "_comment": "Binding map for claude-mcp-orchestrator (Claude-specific concrete binding of orchestration-workflow) from ai-orchestration's generic template.",
+  "name": "claude-mcp-orchestrator",
+  "plugin": "architect-side",
+  "description": "Orchestrate Claude Code CLI (the Executor) through the claude-mcp server - worktree isolation (claude_implement's own isolation='worktree'), non-blocking parallel delegation via claude_implement, deterministic completion wait (claude_task_wait) and tail-transcript progress monitoring (claude_task_progress/claude_task_cancel/continue_session_id), verification of Final Reports, defect and decision telemetry (claude_log_issue/claude_log_decision), and capture of work that emerges mid-session as task files in the repository. Use when coordinating development work through the claude-mcp tools.",
+  "tools": {
+    "implement_call": "`claude_implement`",
+    "implement_call_cap": "`claude_implement`",
+    "edit_tools": "`Edit`/`Write` tools",
+    "executor_name": "Claude",
+    "executor_poss": "Claude's",
+    "backend_annotations": "the backend models",
+    "frontend_files": "the frontend files",
+    "compose_file": "a compose file",
+    "spec_skill_link": "`task-spec-authoring`"
+  },
+  "blocks": {
+    "intro": "This skill is designed for an Orchestrating AI (e.g. Kilo, Claude, Codex) to coordinate headless Claude Code CLI sessions (the Executor) using Worktrees, non-blocking Parallel Execution, Tail Monitoring, and Issues Tracking.",
+    "corrective_call": "`claude_implement(continue_session_id=..., task_instructions=\"<corrective instructions>\")`",
+    "phase1_suffix": "",
+    "phase1_body": "Explore the repository before designing solutions. Confirm Claude's CLI readiness, model lineup, and credentials with `claude_list_models` and `claude_auth_status` once per session or after a dispatch failure.",
+    "phase3_body": "Use `claude_implement` to delegate implementation work. It runs in the **background by default** and returns a `task_id` immediately — never block the conversation waiting on it. Pass `focus_files` found during search, configure any `skills_to_load`, and dispatch tasks in parallel across worktrees. For work that spans multiple dependent steps or sessions, write it up first as a `tasks/` pipeline (see the `task-pipeline` skill) and delegate one task file at a time.",
+    "phase2_body": "When delegating non-trivial changes, pass `isolation='worktree'` directly on the `claude_implement` call (auto-creates `.claude/worktrees/<branch>` and executes there). Git worktrees isolate filesystem writes, but do NOT isolate network ports or shared databases. Explicitly assign each parallel worker a distinct port from `worker_port_range` in the task specification.",
+    "phase4_body": "Scale how closely you watch a task to its complexity/risk:\n  - **Small, well-scoped tasks:** await completion deterministically with `claude_task_wait(task_id=..., timeout_seconds=...)` instead of polling timer loops.\n  - **Large, multi-file, or high-risk tasks:** inspect live progress periodically with `claude_task_progress(task_id)` which reads the tail of Claude's internal project transcript without locking the session.\n  - **If a task drifts off-spec or stalls:** cancel it cleanly with `claude_task_cancel(task_id)` (sends SIGTERM/SIGKILL to the detached process group). You can then steer the same session with corrective instructions using `claude_implement(continue_session_id=..., task_instructions=...)`.",
+    "phase5_body": "Inspect results with `claude_workspace_status`, then actually **execute** what was built — reading the Final Report or the diff is not verification, it's a summary.",
+    "phase6_body": "Record the orchestration branch taken with `claude_log_decision` (`delegate`, `inline`, `escalate`, or `discarded`), and if defects are found during review, log them with `claude_log_issue` (vital for continuous prompt/specification tuning — see `claude-mcp-metrics-analyst`) and request Claude to fix them.",
+    "closing": ""
+  }
+}

@@ -1,0 +1,18 @@
+# claude-mcp.example.toml
+# Rename to claude-mcp.toml (gitignored) to customize local server configuration.
+
+[server]
+# Base directory for task records, transcripts, logs, and telemetry
+data_dir = "~/.claude-mcp"
+default_timeout_seconds = 900
+default_model = "sonnet"
+default_effort = "medium"
+
+[delegation_policy]
+# When to delegate vs. perform work inline
+# Inline criteria: single file, <= 10 lines, no logic/API changes, already in context.
+max_inline_lines = 10
+escalate_after_failures = 2
+
+[permissions]
+default_mode = "acceptEdits" # "acceptEdits" | "auto" | "bypassPermissions" | "dontAsk" | "plan"

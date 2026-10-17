@@ -1,0 +1,7 @@
+[
+  {
+    "name": "claude-mcp-executor-contract",
+    "description": "Behavioral contract for Claude Code when executing background tasks delegated by an orchestrator through claude-mcp - zero interactivity, focus_files contract, mandatory Final Report, fail fast.",
+    "path": "skills/claude-mcp-executor-contract/SKILL.md"
+  }
+]

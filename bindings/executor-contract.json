@@ -1,0 +1,14 @@
+{
+  "_comment": "Binding map for claude-mcp-executor-contract from ai-orchestration's generic template.",
+  "name": "claude-mcp-executor-contract",
+  "plugin": "executor-side",
+  "description": "Behavioral contract for Claude Code when executing background tasks delegated by an orchestrator through claude-mcp - zero interactivity, focus_files contract, mandatory Final Report, fail fast.",
+  "tools": {
+    "executor_name": "Claude",
+    "edit_tools": "`Edit`/`Write` tools",
+    "implement_call": "`claude_implement`"
+  },
+  "blocks": {
+    "framework_banner": "**Executing as headless Claude Code under claude-mcp.**\nDo NOT ask interactive questions. Create 1 atomic commit at completion. End with a structured ## Final Report."
+  }
+}

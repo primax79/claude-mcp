@@ -1,0 +1,12 @@
+{
+  "_comment": "Binding map for claude-mcp-conflict-resolver from ai-orchestration's generic template.",
+  "name": "claude-mcp-conflict-resolver",
+  "plugin": "architect-side",
+  "description": "Resolve merge conflicts in files produced by parallel Claude tasks - find conflict markers, merge both versions preserving the semantics of each parallel feature, verify with linter/build.",
+  "tools": {
+    "executor_name": "Claude",
+    "edit_tools": "`Edit`/`Write` tools",
+    "implement_call": "`claude_implement`"
+  },
+  "blocks": {}
+}

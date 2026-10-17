@@ -1,0 +1,6 @@
+{
+  "claude-mcp-executor-contract": {
+    "profile": "bulk-execution",
+    "reason": "Behavioral contract for background Claude Code execution: zero interactivity, focus_files, 1-task-1-commit."
+  }
+}

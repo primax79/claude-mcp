@@ -1,0 +1,19 @@
+{
+  "name": "claude-mcp",
+  "description": "Claude Code CLI execution binding for ai-orchestration - worktrees, non-blocking parallel execution, tail monitoring, and metrics tracking.",
+  "owner": {
+    "name": "Alfredo Oliviero"
+  },
+  "plugins": [
+    {
+      "name": "architect-side",
+      "description": "Claude MCP Architect skills: claude-mcp-orchestrator, claude-mcp-metrics-analyst, claude-mcp-conflict-resolver, and claude-mcp-orchestrator-agent.",
+      "path": "plugins/architect-side"
+    },
+    {
+      "name": "executor-side",
+      "description": "Claude MCP Executor skills: claude-mcp-executor-contract.",
+      "path": "plugins/executor-side"
+    }
+  ]
+}

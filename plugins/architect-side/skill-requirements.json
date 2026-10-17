@@ -1,0 +1,14 @@
+{
+  "claude-mcp-orchestrator": {
+    "profile": "orchestration",
+    "reason": "Main session orchestration, task dispatch, monitoring, and verification gate execution."
+  },
+  "claude-mcp-metrics-analyst": {
+    "profile": "deep-reasoning",
+    "reason": "Analyzing delegation efficiency, decision branches, and defect patterns."
+  },
+  "claude-mcp-conflict-resolver": {
+    "profile": "deep-reasoning",
+    "reason": "Resolving merge conflicts between parallel Executor branches."
+  }
+}

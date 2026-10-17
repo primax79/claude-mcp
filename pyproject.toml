@@ -1,0 +1,18 @@
+[project]
+name = "claude-mcp-server"
+version = "0.1.0"
+description = "MCP server that lets an orchestrating AI (e.g. Kilo, Claude, Codex) orchestrate headless Claude Code CLI as an executor (architect/executor pattern)"
+readme = "README.md"
+authors = [{ name = "Alfredo Oliviero" }]
+keywords = ["mcp", "claude", "agent", "orchestration", "headless"]
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=2.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+claude-mcp = "server:main"

@@ -1,0 +1,7 @@
+[
+  {
+    "name": "claude-mcp-metrics-analyst",
+    "description": "Evaluate claude-mcp delegation efficiency - ROI analysis via claude_metrics, decision telemetry via claude_log_decision, defect-pattern review from claude_log_issue, and feedback-loop proposals for better task specifications. Use when evaluating Claude Code delegation efficiency.",
+    "path": "skills/claude-mcp-metrics-analyst/SKILL.md"
+  }
+]
