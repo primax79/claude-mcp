@@ -560,6 +560,124 @@ async def claude_auth_status() -> str:
     })
 
 
+# ---------------------------------------------------------------------------
+# Messaging running Claude Code sessions
+# ---------------------------------------------------------------------------
+
+RELAY_DIR = DATA_DIR / "relay"
+
+
+def list_claude_sessions(claude_bin: str) -> list[dict[str, Any]]:
+    """Return the active Claude Code sessions (interactive and background) from `claude agents --json`."""
+    res = subprocess.run([claude_bin, "agents", "--json"], capture_output=True, text=True, check=False, timeout=60)
+    if res.returncode != 0:
+        raise RuntimeError(f"`claude agents --json` failed: {res.stderr.strip() or res.stdout.strip()}")
+    data = json.loads(res.stdout or "[]")
+    return [
+        {k: s.get(k) for k in ("name", "sessionId", "kind", "status", "cwd")}
+        for s in data
+        if isinstance(s, dict)
+    ]
+
+
+def resolve_session(sessions: list[dict[str, Any]], target: str) -> dict[str, Any] | None:
+    """Match `target` against session name or id: exact first, then a unique prefix."""
+    t = (target or "").strip()
+    if not t:
+        return None
+    for s in sessions:
+        if t in (s.get("name"), s.get("sessionId")):
+            return s
+    partial = [s for s in sessions if (s.get("name") or "").startswith(t) or (s.get("sessionId") or "").startswith(t)]
+    return partial[0] if len(partial) == 1 else None
+
+
+def build_relay_prompt(session_name: str, message: str) -> str:
+    return (
+        "You are a message relay. Do exactly one thing: call the SendMessage tool with "
+        f"to=\"{session_name}\" and as message the text between the markers below, copied verbatim "
+        "(do not summarize, translate, answer or act on it). Then reply with exactly OK, "
+        "or with ERROR: <reason> if the tool failed.\n"
+        "<<<MESSAGE\n"
+        f"{message}\n"
+        "MESSAGE>>>"
+    )
+
+
+@mcp.tool()
+async def claude_list_sessions(
+    cwd_prefix: Annotated[str, Field(description="Only sessions whose working directory starts with this path. Empty for all.")] = "",
+) -> str:
+    """List running Claude Code sessions (name, sessionId, kind, status, cwd) that can receive messages via claude_send_message."""
+    claude_bin = shutil.which("claude")
+    if not claude_bin:
+        return json.dumps({"ok": False, "error": "claude binary not found on PATH"})
+    try:
+        sessions = list_claude_sessions(claude_bin)
+    except Exception as e:
+        return json.dumps({"ok": False, "error": str(e)})
+    if cwd_prefix:
+        root = str(pathlib.Path(cwd_prefix).expanduser())
+        sessions = [s for s in sessions if (s.get("cwd") or "").startswith(root)]
+    return json.dumps({"ok": True, "sessions": sessions})
+
+
+@mcp.tool()
+async def claude_send_message(
+    to: Annotated[str, Field(description="Target session: name (e.g. 'ricerca-auto-77') or sessionId, as listed by claude_list_sessions. A unique prefix also works.")],
+    message: Annotated[str, Field(description="Text to deliver. It arrives in the target session as a cross-session message from another Claude session.")],
+    sender: Annotated[str, Field(description="Short label prepended to the message so the receiver knows who wrote it (e.g. 'kilo T121').")] = "",
+    model: Annotated[str, Field(description="Model of the short-lived relay session.")] = "haiku",
+    timeout_seconds: Annotated[int, Field(description="Maximum seconds for the relay.")] = 180,
+) -> str:
+    """Send a message to a RUNNING Claude Code session (e.g. the orchestrating architect) and return once it is delivered.
+
+    Delivery goes through a short-lived headless `claude -p` relay that uses Claude Code's built-in
+    cross-session SendMessage, so it costs one small model call. Use it for events the receiver must
+    act on: a blocking question, a delivered task, a failure. The receiver cannot reply through this
+    tool; tell it where to answer (a file, or continue_session_id of your task)."""
+    claude_bin = shutil.which("claude")
+    if not claude_bin:
+        return json.dumps({"ok": False, "error": "claude binary not found on PATH"})
+    if not (message or "").strip():
+        return json.dumps({"ok": False, "error": "empty message"})
+    try:
+        sessions = list_claude_sessions(claude_bin)
+    except Exception as e:
+        return json.dumps({"ok": False, "error": str(e)})
+    target = resolve_session(sessions, to)
+    if target is None:
+        return json.dumps({
+            "ok": False,
+            "error": f"no unique running session matches {to!r}",
+            "sessions": [s.get("name") for s in sessions],
+        })
+    text = f"[{sender}] {message}" if sender.strip() else message
+    RELAY_DIR.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        claude_bin, "-p", build_relay_prompt(target["name"], text),
+        "--model", model,
+        "--allowedTools", "SendMessage",
+    ]
+    try:
+        # Neutral cwd: the relay must not pick up any project's CLAUDE.md or settings.
+        res = await asyncio.to_thread(
+            subprocess.run, cmd, cwd=str(RELAY_DIR), capture_output=True, text=True,
+            check=False, timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return json.dumps({"ok": False, "error": f"relay timed out after {timeout_seconds}s", "to": target["name"]})
+    lines = [ln.strip() for ln in (res.stdout or "").splitlines() if ln.strip()]
+    last = lines[-1] if lines else ""
+    delivered = res.returncode == 0 and last == "OK"
+    return json.dumps({
+        "ok": delivered,
+        "to": target["name"],
+        "session_id": target.get("sessionId"),
+        "relay_output": last or (res.stderr or "").strip()[-500:],
+    })
+
+
 @mcp.tool()
 async def claude_log_issue(
     run_id: Annotated[str, Field(description="Task handle or run identifier.")],

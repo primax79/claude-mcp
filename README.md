@@ -22,3 +22,10 @@ flowchart TB
 ## Status & Implementation Tasks
 
 Specification is complete and reviewed ([`SPEC.md`](SPEC.md), [`reviews/001-spec-review-kilo-gemini-3.7-flash.md`](reviews/001-spec-review-kilo-gemini-3.7-flash.md)). Implementation is broken down into 5 atomic tasks in [`tasks/00-INDEX.md`](tasks/00-INDEX.md) and [`tasks/01-claude-mcp-server/plan.md`](tasks/01-claude-mcp-server/plan.md), ready for execution.
+
+## Messaging a running Claude Code session
+
+Executors (e.g. Kilo) can notify the orchestrating Claude Code session, for a blocking question, a delivered task or a failure, instead of waiting to be polled:
+
+- `claude_list_sessions(cwd_prefix="")`: running sessions from `claude agents --json` (name, sessionId, kind, status, cwd).
+- `claude_send_message(to, message, sender="", model="haiku")`: delivers `message` to the session named `to` (name, id, or unique prefix). It spawns a short-lived headless `claude -p` relay in a neutral directory that calls Claude Code's built-in cross-session `SendMessage`, so each message costs one small model call. The receiver gets it as a cross-session message prefixed with `[sender]`; it cannot answer through this tool, so say where the answer should go (a file, or `continue_session_id` of the task).

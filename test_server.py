@@ -108,3 +108,76 @@ def test_claude_task_status_and_result(tmp_path: pathlib.Path):
     assert res_data["status"] == "completed"
     assert "Final Report" in res_data["final_report"]
 
+
+
+SESSIONS_JSON = json.dumps([
+    {"name": "ricerca-auto-77", "sessionId": "36234bd2-aaaa", "kind": "interactive", "status": "busy", "cwd": "/Users/x/works/ricerca_auto"},
+    {"name": "gcube-audit-f7", "sessionId": "b956c5fe-bbbb", "kind": "interactive", "status": "idle", "cwd": "/Users/x/works/gcube_audit"},
+])
+
+
+class _Res:
+    def __init__(self, stdout="", stderr="", returncode=0):
+        self.stdout, self.stderr, self.returncode = stdout, stderr, returncode
+
+
+def _fake_run_factory(calls, relay_stdout="OK\n"):
+    def fake_run(cmd, *args, **kwargs):
+        calls.append((cmd, kwargs))
+        if cmd[1:3] == ["agents", "--json"]:
+            return _Res(stdout=SESSIONS_JSON)
+        return _Res(stdout=relay_stdout)
+    return fake_run
+
+
+def test_resolve_session_exact_and_prefix():
+    sessions = json.loads(SESSIONS_JSON)
+    assert server.resolve_session(sessions, "ricerca-auto-77")["sessionId"] == "36234bd2-aaaa"
+    assert server.resolve_session(sessions, "b956c5fe-bbbb")["name"] == "gcube-audit-f7"
+    assert server.resolve_session(sessions, "ricerca")["name"] == "ricerca-auto-77"
+    assert server.resolve_session(sessions, "nope") is None
+    assert server.resolve_session(sessions, "") is None
+
+
+def test_list_sessions_filters_by_cwd(monkeypatch: pytest.MonkeyPatch):
+    calls: list = []
+    monkeypatch.setattr(server.shutil, "which", lambda _: "/usr/bin/claude")
+    monkeypatch.setattr(server.subprocess, "run", _fake_run_factory(calls))
+    out = json.loads(asyncio.run(server.claude_list_sessions(cwd_prefix="/Users/x/works/ricerca_auto")))
+    assert out["ok"] is True
+    assert [s["name"] for s in out["sessions"]] == ["ricerca-auto-77"]
+
+
+def test_send_message_runs_relay_with_sender(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
+    calls: list = []
+    monkeypatch.setattr(server, "RELAY_DIR", tmp_path / "relay")
+    monkeypatch.setattr(server.shutil, "which", lambda _: "/usr/bin/claude")
+    monkeypatch.setattr(server.subprocess, "run", _fake_run_factory(calls))
+    out = json.loads(asyncio.run(server.claude_send_message(to="ricerca", message="T121 consegnato", sender="kilo T121")))
+    assert out["ok"] is True and out["to"] == "ricerca-auto-77"
+    relay_cmd, kwargs = calls[-1]
+    assert relay_cmd[1] == "-p"
+    assert 'to="ricerca-auto-77"' in relay_cmd[2]
+    assert "[kilo T121] T121 consegnato" in relay_cmd[2]
+    assert relay_cmd[relay_cmd.index("--allowedTools") + 1] == "SendMessage"
+    assert kwargs["cwd"] == str(tmp_path / "relay")
+
+
+def test_send_message_unknown_target_lists_sessions(monkeypatch: pytest.MonkeyPatch):
+    calls: list = []
+    monkeypatch.setattr(server.shutil, "which", lambda _: "/usr/bin/claude")
+    monkeypatch.setattr(server.subprocess, "run", _fake_run_factory(calls))
+    out = json.loads(asyncio.run(server.claude_send_message(to="missing", message="hi")))
+    assert out["ok"] is False
+    assert "ricerca-auto-77" in out["sessions"]
+    assert len(calls) == 1  # no relay spawned
+
+
+def test_send_message_reports_relay_error(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
+    calls: list = []
+    monkeypatch.setattr(server, "RELAY_DIR", tmp_path / "relay")
+    monkeypatch.setattr(server.shutil, "which", lambda _: "/usr/bin/claude")
+    monkeypatch.setattr(server.subprocess, "run", _fake_run_factory(calls, relay_stdout="ERROR: session not reachable\n"))
+    out = json.loads(asyncio.run(server.claude_send_message(to="ricerca-auto-77", message="hi")))
+    assert out["ok"] is False
+    assert out["relay_output"].startswith("ERROR")
