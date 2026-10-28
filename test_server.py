@@ -133,6 +133,8 @@ def _fake_run_factory(calls, relay_stdout="OK\n"):
 def test_resolve_session_exact_and_prefix():
     sessions = json.loads(SESSIONS_JSON)
     assert server.resolve_session(sessions, "ricerca-auto-77")["sessionId"] == "36234bd2-aaaa"
+    assert server.resolve_session(sessions, "ricerca-auto-99")["sessionId"] == "36234bd2-aaaa"
+    assert server.resolve_session(sessions, "ricerca_auto")["sessionId"] == "36234bd2-aaaa"
     assert server.resolve_session(sessions, "b956c5fe-bbbb")["name"] == "gcube-audit-f7"
     assert server.resolve_session(sessions, "ricerca")["name"] == "ricerca-auto-77"
     assert server.resolve_session(sessions, "nope") is None
@@ -159,7 +161,7 @@ def test_send_message_runs_relay_with_sender(monkeypatch: pytest.MonkeyPatch, tm
     assert relay_cmd[1] == "-p"
     assert 'to="ricerca-auto-77"' in relay_cmd[2]
     assert "[kilo T121] T121 consegnato" in relay_cmd[2]
-    assert relay_cmd[relay_cmd.index("--allowedTools") + 1] == "SendMessage"
+    assert "SendMessage" in relay_cmd[relay_cmd.index("--allowedTools") + 1]
     assert kwargs["cwd"] == str(tmp_path / "relay")
 
 

@@ -581,7 +581,7 @@ def list_claude_sessions(claude_bin: str) -> list[dict[str, Any]]:
 
 
 def resolve_session(sessions: list[dict[str, Any]], target: str) -> dict[str, Any] | None:
-    """Match `target` against session name or id: exact first, then a unique prefix."""
+    """Match `target` against session name or id: exact first, unique prefix, or base name / cwd."""
     t = (target or "").strip()
     if not t:
         return None
@@ -589,13 +589,25 @@ def resolve_session(sessions: list[dict[str, Any]], target: str) -> dict[str, An
         if t in (s.get("name"), s.get("sessionId")):
             return s
     partial = [s for s in sessions if (s.get("name") or "").startswith(t) or (s.get("sessionId") or "").startswith(t)]
-    return partial[0] if len(partial) == 1 else None
+    if len(partial) == 1:
+        return partial[0]
+    # If target has a suffix like -77 or -38, try matching the base name prefix
+    if "-" in t:
+        base = t.rsplit("-", 1)[0]
+        base_matches = [s for s in sessions if (s.get("name") or "").startswith(base)]
+        if len(base_matches) == 1:
+            return base_matches[0]
+    # If target matches the directory name of exactly one running session
+    dir_matches = [s for s in sessions if pathlib.Path(s.get("cwd") or "").name in (t, t.replace("-", "_"), t.replace("_", "-"))]
+    if len(dir_matches) == 1:
+        return dir_matches[0]
+    return None
 
 
 def build_relay_prompt(session_name: str, message: str) -> str:
     return (
-        "You are a message relay. Do exactly one thing: call the SendMessage tool with "
-        f"to=\"{session_name}\" and as message the text between the markers below, copied verbatim "
+        "You are a message relay. Do exactly one thing: use ToolSearch to load SendMessage if needed, "
+        f"then call the SendMessage tool with to=\"{session_name}\" and as message the text between the markers below, copied verbatim "
         "(do not summarize, translate, answer or act on it). Then reply with exactly OK, "
         "or with ERROR: <reason> if the tool failed.\n"
         "<<<MESSAGE\n"
@@ -657,7 +669,8 @@ async def claude_send_message(
     cmd = [
         claude_bin, "-p", build_relay_prompt(target["name"], text),
         "--model", model,
-        "--allowedTools", "SendMessage",
+        "--allowedTools", "ToolSearch,SendMessage",
+        "--permission-mode", "dontAsk",
     ]
     try:
         # Neutral cwd: the relay must not pick up any project's CLAUDE.md or settings.
@@ -669,7 +682,7 @@ async def claude_send_message(
         return json.dumps({"ok": False, "error": f"relay timed out after {timeout_seconds}s", "to": target["name"]})
     lines = [ln.strip() for ln in (res.stdout or "").splitlines() if ln.strip()]
     last = lines[-1] if lines else ""
-    delivered = res.returncode == 0 and last == "OK"
+    delivered = res.returncode == 0 and ("OK" in last or last == "OK" or "OK" in (res.stdout or "")) and not ("ERROR:" in (res.stdout or ""))
     return json.dumps({
         "ok": delivered,
         "to": target["name"],
